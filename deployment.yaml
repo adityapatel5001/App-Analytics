@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics-app
+  template:
+    metadata:
+      labels:
+        app: analytics-app
+    spec:
+      containers:
+      - name: analytics-app
+        image: 665303624826.dkr.ecr.us-east-2.amazonaws.com/analytics-app:v1
+        ports:
+        - containerPort: 8501
