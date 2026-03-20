@@ -1,4 +1,5 @@
-pipeline {
+
+peline {
     agent any
 
     environment {
@@ -17,37 +18,42 @@ pipeline {
             }
         }
 
+        stage('Get AWS Account ID') {
+            steps {
+                script {
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: "aws sts get-caller-identity --query Account --output text",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    IMAGE_TAG = "${env.BUILD_ID}"
-                    sh """
-                    docker build -t ${ECR_REPO}:${IMAGE_TAG} .
-                    """
+                    env.IMAGE_TAG = "${env.BUILD_ID}"
+                    sh "docker build -t ${ECR_REPO}:${IMAGE_TAG} ."
                 }
             }
         }
 
         stage('Login to ECR') {
             steps {
-                script {
-                    sh """
-                    aws ecr get-login-password --region ${AWS_REGION} \
-                    | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                    """
-                }
+                sh """
+                aws ecr get-login-password --region ${AWS_REGION} \
+                | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                """
             }
         }
 
         stage('Tag and Push Image') {
             steps {
                 script {
-                    ACCOUNT_ID = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-
-                    IMAGE_URI = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BUILD_ID}"
+                    env.IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
-                    docker tag ${ECR_REPO}:${BUILD_ID} ${IMAGE_URI}
+                    docker tag ${ECR_REPO}:${IMAGE_TAG} ${IMAGE_URI}
                     docker push ${IMAGE_URI}
                     """
                 }
@@ -56,20 +62,16 @@ pipeline {
 
         stage('Deploy to EKS') {
             steps {
-                script {
-                    ACCOUNT_ID = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-                    IMAGE_URI = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BUILD_ID}"
+                sh """
+                aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                    sh """
-                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+                kubectl set image deployment/${DEPLOYMENT_NAME} \
+                ${CONTAINER_NAME}=${IMAGE_URI}
 
-                    kubectl set image deployment/${DEPLOYMENT_NAME} \
-                    ${CONTAINER_NAME}=${IMAGE_URI}
-
-                    kubectl rollout status deployment/${DEPLOYMENT_NAME}
-                    """
-                }
+                kubectl rollout status deployment/${DEPLOYMENT_NAME}
+                """
             }
         }
     }
+}
 }
